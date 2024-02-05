@@ -1,3 +1,6 @@
+# Abstract
+该功能包主要包含了move_base源码以及ros导航的navigation源码，在使用navigation中导航仿真时，能直接在move_base源码中修改路径规划、定位等算法，对比、测试结果较为直观。
+
 ROS Navigation Stack
 ====================
 
