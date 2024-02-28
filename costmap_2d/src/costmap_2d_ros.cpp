@@ -1,39 +1,10 @@
 /*********************************************************************
- *
- * Software License Agreement (BSD License)
- *
- *  Copyright (c) 2008, 2013, Willow Garage, Inc.
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without
- *  modification, are permitted provided that the following conditions
- *  are met:
- *
- *   * Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above
- *     copyright notice, this list of conditions and the following
- *     disclaimer in the documentation and/or other materials provided
- *     with the distribution.
- *   * Neither the name of Willow Garage, Inc. nor the names of its
- *     contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
- *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *  POSSIBILITY OF SUCH DAMAGE.
- *
- * Author: Eitan Marder-Eppstein
- *         David V. Lu!!
+Costmap2DROS类是对整个代价地图内容的封装。
+
+1. LayeredCostmap类是Costmap2DROS的类成员，它是“主地图”，也能够管理各层地图，因为它含有指向各层子地图的指针，能够调用子地图的类方法，开启子地图的更新。并且，各层子地图最后都会合并到主地图上，提供给规划器的使用。它含有Costmap2D类成员，这个类就是底层地图，用于记录地图数据。
+2. CostmapLayer类派生自Layer类和Costmap2D类。Layer类中含有子地图层用到的一些函数，如更新size、更新bound、和主地图合并等；Costmap2D类存储该层维护的地图数据。由CostmapLayer类派生出StaticLayer类和ObstacleLayer类，即静态层和障碍层，前者获取静态地图，后者通过传感器数据不断更新，获得能反映障碍物信息的子地图。
+3. 由Layer类单独派生出InflationLayer类，即膨胀层，用它来反映障碍物在地图上向周边的膨胀。由于它的父类中不含Costmap2D类，所以其实膨胀层自身没有栅格地图要维护，这一点和另外两层有区别。
+
  *********************************************************************/
 #include <costmap_2d/layered_costmap.h>
 #include <costmap_2d/costmap_2d_ros.h>
@@ -61,6 +32,7 @@ void move_parameter(ros::NodeHandle& old_h, ros::NodeHandle& new_h, std::string 
   if (should_delete) old_h.deleteParam(name);
 }
 
+/*1. 首先是一些参数的获取。循环等待直到获得机器人底盘坐标系和global系之间的坐标转换。并获取rolling_window、track_unknown_space、always_send_full_costmap的参数，默认为false。*/
 Costmap2DROS::Costmap2DROS(const std::string& name, tf2_ros::Buffer& tf) :
     layered_costmap_(NULL),
     name_(name),
@@ -81,13 +53,13 @@ Costmap2DROS::Costmap2DROS(const std::string& name, tf2_ros::Buffer& tf) :
   ros::NodeHandle private_nh("~/" + name);
   ros::NodeHandle g_nh;
 
-  // get global and robot base frame names
+  //两个坐标系
   private_nh.param("global_frame", global_frame_, std::string("map"));
   private_nh.param("robot_base_frame", robot_base_frame_, std::string("base_link"));
-
+  
   ros::Time last_error = ros::Time::now();
   std::string tf_error;
-  // we need to make sure that the transform between the robot base frame and the global frame is available
+  //确保机器人底盘坐标系和世界坐标系之间的有效转换,否则一直停留在这里阻塞
   while (ros::ok()
       && !tf_.canTransform(global_frame_, robot_base_frame_, ros::Time(), ros::Duration(0.1), &tf_error))
   {
@@ -103,39 +75,40 @@ Costmap2DROS::Costmap2DROS(const std::string& name, tf2_ros::Buffer& tf) :
     tf_error.clear();
   }
 
-  // check if we want a rolling window version of the costmap
+  //检测是否需要“窗口滚动”，从参数服务器获取以下参数
   bool rolling_window, track_unknown_space, always_send_full_costmap;
   private_nh.param("rolling_window", rolling_window, false);
   private_nh.param("track_unknown_space", track_unknown_space, false);
   private_nh.param("always_send_full_costmap", always_send_full_costmap, false);
-
+  // 创建一个LayeredCostmap类实例layered_costmap_，作为规划器使用的主地图，并通过它管理各层地图
   layered_costmap_ = new LayeredCostmap(global_frame_, rolling_window, track_unknown_space);
-
+  //如果没有这一项参数，重新设置旧参数
   if (!private_nh.hasParam("plugins"))
   {
     loadOldParameters(private_nh);
   } else {
     warnForOldParameters(private_nh);
   }
-
+   //加入各个层次的地图
   if (private_nh.hasParam("plugins"))
   {
     XmlRpc::XmlRpcValue my_list;
     private_nh.getParam("plugins", my_list);
     for (int32_t i = 0; i < my_list.size(); ++i)
     {
+      //从my_list里获取地图名称和种类
       std::string pname = static_cast<std::string>(my_list[i]["name"]);
       std::string type = static_cast<std::string>(my_list[i]["type"]);
       ROS_INFO("%s: Using plugin \"%s\"", name_.c_str(), pname.c_str());
-
       copyParentParameters(pname, type, private_nh);
-
+      //这行会创建一个以type为类类型的实例变量，然后让plugin这个指针指向这个实例
       boost::shared_ptr<Layer> plugin = plugin_loader_.createInstance(type);
       layered_costmap_->addPlugin(plugin);
+      //实际执行的是plugin调用的父类Layer的方法initialize
       plugin->initialize(layered_costmap_, name + "/" + pname, &tf_);
     }
   }
-
+  /*订阅footprint话题，回调函数为setUnpaddedRobotFootprintPolygon。当话题上收到footprint时，回调函数会将接收到的footprint根据参数footprint_padding_的值进行“膨胀”，得到“膨胀”后的padded_footprint_，传递给各级地图。*/
   // subscribe to the footprint topic
   std::string topic_param, topic;
   if (!private_nh.searchParam("footprint_topic", topic_param))
@@ -150,21 +123,21 @@ Costmap2DROS::Costmap2DROS(const std::string& name, tf2_ros::Buffer& tf) :
   {
     topic_param = "published_footprint";
   }
-
   private_nh.param(topic_param, topic, std::string("footprint"));  // TODO: revert to oriented_footprint in N-turtle
   footprint_pub_ = private_nh.advertise<geometry_msgs::PolygonStamped>(topic, 1);
-
   setUnpaddedRobotFootprint(makeFootprintFromParams(private_nh));
 
+  /*创建地图的发布器实例，Costmap2DPublisher类是用于地图发布的封装类。*/
   publisher_ = new Costmap2DPublisher(&private_nh, layered_costmap_->getCostmap(), global_frame_, "costmap",
                                       always_send_full_costmap);
-
-  // create a thread to handle updating the map
+  //创建地图更新线程的控制量
   stop_updates_ = false;
   initialized_ = true;
   stopped_ = false;
-
+  /*开启动态参数配置，它的回调函数Costmap2DROS::reconfigureCB会在节点启动时运行一次，加载.cfg文件的配置参数。这个函数给对应参数赋值，并创建了一个Costmap2DROS::mapUpdateLoop函数的线程，即地图更新线程。*/
+  //开启参数动态配置
   dsrv_ = new dynamic_reconfigure::Server<Costmap2DConfig>(ros::NodeHandle("~/" + name));
+  //回调函数reconfigureCB 除了对一些类成员的配置值做赋值以外，还会开启一个更新map的线程 
   dynamic_reconfigure::Server<Costmap2DConfig>::CallbackType cb = [this](auto& config, auto level){ reconfigureCB(config, level); };
   dsrv_->setCallback(cb);
 }
@@ -409,6 +382,7 @@ void Costmap2DROS::movementCB(const ros::TimerEvent &event)
   }
 }
 
+/*2. 地图更新线程 Costmap2DROS::mapUpdateLoop。这个函数循环调用UpdateMap函数，更新地图。并以publish_cycle为周期，发布更新后的地图。*/
 void Costmap2DROS::mapUpdateLoop(double frequency)
 {
   ros::NodeHandle nh;
@@ -428,9 +402,10 @@ void Costmap2DROS::mapUpdateLoop(double frequency)
     start_t = start.tv_sec + double(start.tv_usec) / 1e6;
     end_t = end.tv_sec + double(end.tv_usec) / 1e6;
     t_diff = end_t - start_t;
+    //计算地图更新时间
     ROS_DEBUG("Map update time: %.9f", t_diff);
     #endif
-    
+    //更新地图边界及发布
     if (publish_cycle.toSec() > 0 && layered_costmap_->isInitialized())
     {
       unsigned int x0, y0, xn, yn;
@@ -451,21 +426,22 @@ void Costmap2DROS::mapUpdateLoop(double frequency)
                r.cycleTime().toSec());
   }
 }
-
+/*3. 地图更新 Costmap2DROS::updateMap()
+这个函数首先调用类内 getRobotPose 函数，通过tf转换，将机器人底盘系的坐标转换到global系，得到机器人的位姿。然后通过 layered_costmap_ 调用 LayeredCostmap 类的 updateMap 函数，更新地图。*/
 void Costmap2DROS::updateMap()
 {
   if (!stop_updates_)
   {
-    // get global pose
+    //获取机器人在地图上的位置和姿态
     geometry_msgs::PoseStamped pose;
     if (getRobotPose (pose))
     {
       double x = pose.pose.position.x,
              y = pose.pose.position.y,
              yaw = tf2::getYaw(pose.pose.orientation);
-
+      //调用layered_costmap_的updateMap函数，参数是机器人位姿
       layered_costmap_->updateMap(x, y, yaw);
-
+      /*这里更新机器人的实时足迹，通过footprint_pub_发布*/
       geometry_msgs::PolygonStamped footprint;
       footprint.header.frame_id = global_frame_;
       footprint.header.stamp = ros::Time::now();
@@ -476,14 +452,15 @@ void Costmap2DROS::updateMap()
     }
   }
 }
-
+/*4. 激活各层地图 Costmap2DROS::start()
+start函数在Movebase中被调用，这个函数对各层地图插件调用activate函数，激活各层地图。*/
 void Costmap2DROS::start()
 {
   std::vector < boost::shared_ptr<Layer> > *plugins = layered_costmap_->getPlugins();
-  // check if we're stopped or just paused
+  //检查地图是否暂停或者停止
   if (stopped_)
   {
-    // if we're stopped we need to re-subscribe to topics
+    //如果停止，需要重新订阅话题, “Layer”是一个类，active是其中一个类方法
     for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins->begin(); plugin != plugins->end();
         ++plugin)
     {
@@ -493,8 +470,7 @@ void Costmap2DROS::start()
   }
   stop_updates_ = false;
 
-  // block until the costmap is re-initialized.. meaning one update cycle has run
-  // note: this does not hold, if the user has disabled map-updates allgother
+  //在costmap被重新初始化前阻塞..meaning one update cycle has run
   ros::Rate r(100.0);
   while (ros::ok() && !initialized_ && map_update_thread_)
     r.sleep();

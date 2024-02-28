@@ -1,39 +1,8 @@
 /*********************************************************************
- *
- * Software License Agreement (BSD License)
- *
- *  Copyright (c) 2008, 2013, Willow Garage, Inc.
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without
- *  modification, are permitted provided that the following conditions
- *  are met:
- *
- *   * Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above
- *     copyright notice, this list of conditions and the following
- *     disclaimer in the documentation and/or other materials provided
- *     with the distribution.
- *   * Neither the name of Willow Garage, Inc. nor the names of its
- *     contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
- *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *  POSSIBILITY OF SUCH DAMAGE.
- *
- * Author: Eitan Marder-Eppstein
- *         David V. Lu!!
+Costmap2D类是记录地图数据的底层，它记录地图的x、y方向的尺寸，地图的分辨率，地图原点位置，以及用unsigned char类型记录地图内容。
+并且，Costmap2D类提供了一些对地图进行基本操作的函数，如：地图复制、用index/点坐标来设置/获取地图上该点的cost值、地图坐标和世
+界坐标之间的转换、获取地图大小/分辨率/原点、设置多边形边缘及内部点的cost值。
+
  *********************************************************************/
 #include <costmap_2d/costmap_2d.h>
 #include <cstdio>
@@ -312,6 +281,8 @@ void Costmap2D::updateOrigin(double new_origin_x, double new_origin_y)
   delete[] local_map;
 }
 
+/*1. 设置多边形cost Costmap2D::setConvexPolygonCost
+先将世界系下的多边形顶点转换到地图坐标系，并存放进map_polygon数组中。*/
 bool Costmap2D::setConvexPolygonCost(const std::vector<geometry_msgs::Point>& polygon, unsigned char cost_value)
 {
   // we assume the polygon is given in the global_frame... we need to transform it to map coordinates
@@ -326,13 +297,11 @@ bool Costmap2D::setConvexPolygonCost(const std::vector<geometry_msgs::Point>& po
     }
     map_polygon.push_back(loc);
   }
-
+  /*接着调用convexFillCells函数，通过机器人顶点坐标数组map_polygon得到多边形边缘及内部的全部cell，存放在polygon_cells中，并通过循环对多边形边缘及内部各cell的cost赋值。*/
   std::vector<MapLocation> polygon_cells;
-
   // get the cells that fill the polygon
   convexFillCells(map_polygon, polygon_cells);
-
-  // set the cost of those cells
+  //把多边形边缘及内部的所有cell的cost设置为cost_value
   for (unsigned int i = 0; i < polygon_cells.size(); ++i)
   {
     unsigned int index = getIndex(polygon_cells[i].x, polygon_cells[i].y);
@@ -341,6 +310,8 @@ bool Costmap2D::setConvexPolygonCost(const std::vector<geometry_msgs::Point>& po
   return true;
 }
 
+/*3. 获取多边形边上的cell Costmap2D::polygonOutlineCells
+这个函数循环调用raytraceLine函数，不断获取相邻之间的连线，最终组成多边形边上的cell，需要注意的是需要将最后一点和第一点连接起来，形成闭合。*/
 void Costmap2D::polygonOutlineCells(const std::vector<MapLocation>& polygon, std::vector<MapLocation>& polygon_cells)
 {
   PolygonOutlineCells cell_gatherer(*this, costmap_, polygon_cells);
@@ -356,6 +327,8 @@ void Costmap2D::polygonOutlineCells(const std::vector<MapLocation>& polygon, std
   }
 }
 
+/*2. 获取多边形边缘及内部cell Costmap2D::convexFillCells*/
+/*首先确保给定的多边形顶点不少于3个，接着调用类内polygonOutlineCells函数，通过给定的顶点提取多边形边上的cell*/
 void Costmap2D::convexFillCells(const std::vector<MapLocation>& polygon, std::vector<MapLocation>& polygon_cells)
 {
   // we need a minimum polygon of a triangle
@@ -365,7 +338,7 @@ void Costmap2D::convexFillCells(const std::vector<MapLocation>& polygon, std::ve
   // first get the cells that make up the outline of the polygon
   polygonOutlineCells(polygon, polygon_cells);
 
-  // quick bubble sort to sort points by x
+  // 对边上的cell点的x做排序，使其按x坐标升序排列。
   MapLocation swap;
   unsigned int i = 0;
   while (i < polygon_cells.size() - 1)
@@ -382,7 +355,7 @@ void Costmap2D::convexFillCells(const std::vector<MapLocation>& polygon, std::ve
     else
       ++i;
   }
-
+  /*遍历所有x，对每个相同的x，检查y，获得y最大和最小的polygon cell，将范围内的所有cell填充进polygon_cells，获得多边形边缘及内部的所有cell。*/
   i = 0;
   MapLocation min_pt;
   MapLocation max_pt;
