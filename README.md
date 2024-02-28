@@ -1,3 +1,8 @@
+# Abstract
+该功能包主要包含了move_base源码以及ros导航的navigation源码，在使用navigation中导航仿真时，能直接在move_base源码中修改路径规划、定位等算法，对比、测试结果较为直观。
+该版本对move_base功能包的主干部分进行了注释，主要参考了博客：https://blog.csdn.net/Neo11111?type=blog ，以及相关链接：
+https://blog.csdn.net/Neo11111/article/details/104583913
+
 ROS Navigation Stack
 ====================
 
