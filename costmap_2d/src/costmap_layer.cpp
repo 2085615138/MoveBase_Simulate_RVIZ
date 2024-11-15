@@ -123,6 +123,7 @@ void CostmapLayer::updateWithOverwrite(costmap_2d::Costmap2D& master_grid, int m
     }
   }
 }
+
 /*函数用当前子地图数据（不包括未知cell）更新主地图对应区域，若主地图该cell为未知，用子地图数据覆盖；否则，在主地图原数据基础上+子地图数据（将进行限制避免cost值溢出）*/
 void CostmapLayer::updateWithAddition(costmap_2d::Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j)
 {

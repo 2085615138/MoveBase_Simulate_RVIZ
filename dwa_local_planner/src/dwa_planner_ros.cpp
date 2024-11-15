@@ -138,7 +138,10 @@ namespace dwa_local_planner {
       ROS_WARN("This planner has already been initialized, doing nothing.");
     }
   }
-  
+
+  /**一、
+   * 将新的全局路径利用setPlan传给DWAPlannerROS
+   * */
   bool DWAPlannerROS::setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan) {
     if (! isInitialized()) {
       ROS_ERROR("This planner has not been initialized, please call initialize() before using this planner");
@@ -150,7 +153,11 @@ namespace dwa_local_planner {
     ROS_INFO("Got new plan");
     return dp_->setPlan(orig_global_plan);
   }
-
+  /**二、
+   * 判断是否已经到达了目标点（即位置在xy_goal_tolerance以内，朝向在yaw_goal_tolerance以内，且速度小于trans_stopped_velocity，rot_stopped_velocity），
+   * 如果是则控制结束，即发送0速，且复位move_base的相关控制标记，并返回action成功的结果。
+   * 否则，利用DWAPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)计算局部规划速度
+   */
   bool DWAPlannerROS::isGoalReached() {
     if (! isInitialized()) {
       ROS_ERROR("This planner has not been initialized, please call initialize() before using this planner");
@@ -184,7 +191,7 @@ namespace dwa_local_planner {
   }
 
 
-
+  /*四、*/
   bool DWAPlannerROS::dwaComputeVelocityCommands(geometry_msgs::PoseStamped &global_pose, geometry_msgs::Twist& cmd_vel) {
     // dynamic window sampling approach to get useful velocity commands
     if(! isInitialized()){
@@ -260,7 +267,12 @@ namespace dwa_local_planner {
 
 
 
-
+/**三、
+ * 先将全局路径映射到局部地图中，并更新对应的打分项（参考DWAPlanner::updatePlanAndLocalCosts函数，和具体的打分项更新）。
+ * 然后，利用 LatchedStopRotateController::isPostionReached 函数判断是否已经到达目标位置，
+ * 如果是，则利用 LatchedStopRotateController::computeVelocityCommandsStopRotate 函数计算对应的减速停止或者旋转至目标朝向的速度指令（取决于是否机器人已经停稳，进而决定实现减速停止或者旋转至目标朝向），
+ * 否则利用 DWAPlannerROS::dwaComputeVelocityCommands(tf::Stampedtf::Pose &global_pose, geometry_msgs::Twist& cmd_vel)计算DWA局部路径速度。
+ */
   bool DWAPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel) {
     // dispatches to either dwa sampling control or stop and rotate control, depending on whether we have been close enough to goal
     if ( ! costmap_ros_->getRobotPose(current_pose_)) {

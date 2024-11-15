@@ -308,7 +308,7 @@ namespace dwa_local_planner {
     Eigen::Vector3f goal(goal_pose.pose.position.x, goal_pose.pose.position.y, tf2::getYaw(goal_pose.pose.orientation));
     base_local_planner::LocalPlannerLimits limits = planner_util_->getCurrentLimits();
 
-    // prepare cost functions and generators for this run
+    // prepare cost functions and generators for this run 初始化轨迹产生器，即产生速度空间。
     generator_.initialise(pos,
         vel,
         goal,
@@ -318,7 +318,7 @@ namespace dwa_local_planner {
     result_traj_.cost_ = -7;
     // find best trajectory by sampling and scoring the samples
     std::vector<base_local_planner::Trajectory> all_explored;
-    scored_sampling_planner_.findBestTrajectory(result_traj_, &all_explored);
+    scored_sampling_planner_.findBestTrajectory(result_traj_, &all_explored); //查找最优的局部路径
 
     if(publish_traj_pc_)
     {

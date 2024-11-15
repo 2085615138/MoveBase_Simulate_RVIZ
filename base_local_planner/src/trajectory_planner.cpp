@@ -536,23 +536,35 @@ namespace base_local_planner{
   Trajectory TrajectoryPlanner::createTrajectories(double x, double y, double theta,
       double vx, double vy, double vtheta,
       double acc_x, double acc_y, double acc_theta) {
-    //compute feasible velocity limits in robot space
+    //声明最大/小线速度，最大/小角速度
     double max_vel_x = max_vel_x_, max_vel_theta;
     double min_vel_x, min_vel_theta;
-
+    //如果最终的目标是有效的（全局规划不为空）
+    //检查最终点是否是有效的，判断变量在updatePlan中被赋值
     if( final_goal_position_valid_ ){
+      //计算当前位置和目标位置之间的距离：final_goal_dist
       double final_goal_dist = hypot( final_goal_x_ - x, final_goal_y_ - y );
+      //最大速度：在预设的最大速度和
       max_vel_x = min( max_vel_x, final_goal_dist / sim_time_ );
     }
-
+    /**计算线速度与角速度的上下限*/
+    /**
+     * ① 使用dwa法，则用的是轨迹前向模拟的周期sim_period_（专用于dwa法计算速度的一个时间间隔）；
+     * ② 不使用dwa法，则用的是整段仿真时间sim_time_
+     */
     //should we use the dynamic window approach?
     if (dwa_) {
+      //使用dwa窗口法，sim_period_是dwa计算最大、最小速度用的时间
+      //计算速度、角速度范围，引入加速度限制条件（用sim_period_）
       max_vel_x = max(min(max_vel_x, vx + acc_x * sim_period_), min_vel_x_);
       min_vel_x = max(min_vel_x_, vx - acc_x * sim_period_);
 
       max_vel_theta = min(max_vel_th_, vtheta + acc_theta * sim_period_);
       min_vel_theta = max(min_vel_th_, vtheta - acc_theta * sim_period_);
     } else {
+      //忽略其中的逻辑，按照不同的规则生成路径，调用的子函数是generateTrajectory
+      //不使用dwa窗口法
+      //计算速度、角速度范围，引入加速度限制条件（用sim_time_）
       max_vel_x = max(min(max_vel_x, vx + acc_x * sim_time_), min_vel_x_);
       min_vel_x = max(min_vel_x_, vx - acc_x * sim_time_);
 
@@ -560,7 +572,7 @@ namespace base_local_planner{
       min_vel_theta = max(min_vel_th_, vtheta - acc_theta * sim_time_);
     }
 
-
+    /**计算采样间隔以及初始采样速度 */
     //we want to sample the velocity space regularly
     double dvx = (max_vel_x - min_vel_x) / (vx_samples_ - 1);
     double dvtheta = (max_vel_theta - min_vel_theta) / (vtheta_samples_ - 1);
@@ -581,36 +593,44 @@ namespace base_local_planner{
     //any cell with a cost greater than the size of the map is impossible
     double impossible_cost = path_map_.obstacleCosts();
 
-    //if we're performing an escape we won't allow moving forward
+    //遍历所有线速度和角速度，调用类内generateTrajectory函数用它们生成轨迹
     if (!escaping_) {
-      //loop through all x velocities
+      //外侧循环所有x速度
       for(int i = 0; i < vx_samples_; ++i) {
+        //x速度循环内部遍历角速度
         vtheta_samp = 0;
         //first sample the straight trajectory
+        //传入当前位姿、速度、加速度限制，采样起始x向速度、y向速度、角速度，代价赋给comp_traj
         generateTrajectory(x, y, theta, vx, vy, vtheta, vx_samp, vy_samp, vtheta_samp,
             acc_x, acc_y, acc_theta, impossible_cost, *comp_traj);
 
         //if the new trajectory is better... let's take it
+        //对比生成路径和当前最优路径的分数，如果生成的路径分数更小，就把当前路径和最优路径交换
+        //这里会将第一次生成路径的代价赋给best_traj
         if(comp_traj->cost_ >= 0 && (comp_traj->cost_ < best_traj->cost_ || best_traj->cost_ < 0)){
           swap = best_traj;
           best_traj = comp_traj;
           comp_traj = swap;
         }
-
+        //接下来产生机器人在原地旋转的轨迹
         vtheta_samp = min_vel_theta;
         //next sample all theta trajectories
+        //接下来迭代循环生成所有角速度的路径、打分
         for(int j = 0; j < vtheta_samples_ - 1; ++j){
           generateTrajectory(x, y, theta, vx, vy, vtheta, vx_samp, vy_samp, vtheta_samp,
               acc_x, acc_y, acc_theta, impossible_cost, *comp_traj);
 
           //if the new trajectory is better... let's take it
+          //同样地，如果新路径代价更小，和best_traj作交换
           if(comp_traj->cost_ >= 0 && (comp_traj->cost_ < best_traj->cost_ || best_traj->cost_ < 0)){
             swap = best_traj;
             best_traj = comp_traj;
             comp_traj = swap;
           }
+          //遍历角速度
           vtheta_samp += dvtheta;
         }
+        //遍历x速度
         vx_samp += dvx;
       }
 
@@ -914,7 +934,7 @@ namespace base_local_planner{
     path_map_.resetPathDist();
     goal_map_.resetPathDist();
 
-    //temporarily remove obstacles that are within the footprint of the robot
+    //用当前位姿获取机器人footprint
     std::vector<base_local_planner::Position2DInt> footprint_list =
         footprint_helper_.getFootprintCells(
             pos,
@@ -927,12 +947,14 @@ namespace base_local_planner{
       path_map_(footprint_list[i].x, footprint_list[i].y).within_robot = true;
     }
 
-    //make sure that we update our path based on the global plan and compute costs
+    //确保根据全局规划global plan更新路径，并计算代价
+    //更新哪些地图上的cell是在全局规划路径上的，target_dist设置为0
+    //并且通过它们和其他点的相对位置计算出来地图上所有点的target_dist
     path_map_.setTargetCells(costmap_, global_plan_);
     goal_map_.setLocalGoal(costmap_, global_plan_);
     ROS_DEBUG("Path/Goal distance computed");
 
-    //rollout trajectories and find the minimum cost one
+    //找到代价最低的轨迹
     Trajectory best = createTrajectories(pos[0], pos[1], pos[2],
         vel[0], vel[1], vel[2],
         acc_lim_x_, acc_lim_y_, acc_lim_theta_);

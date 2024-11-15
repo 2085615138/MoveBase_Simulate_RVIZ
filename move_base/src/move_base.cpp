@@ -318,7 +318,7 @@ namespace move_base {
     return true;
   }
 
-
+//全局规划服务，获取全局路径
   bool MoveBase::planService(nav_msgs::GetPlan::Request &req, nav_msgs::GetPlan::Response &resp){
     if(as_->isActive()){
       ROS_ERROR("move_base must be in an inactive state to make a plan for an external user");
@@ -353,6 +353,7 @@ namespace move_base {
 
     //first try to make a plan to the exact desired goal
     std::vector<geometry_msgs::PoseStamped> global_plan;
+    //计算全局路径
     if(!planner_->makePlan(start, req.goal, global_plan) || global_plan.empty()){
       ROS_DEBUG_NAMED("move_base","Failed to find a plan to exact goal of (%.2f, %.2f), searching for a feasible goal within tolerance",
           req.goal.pose.position.x, req.goal.pose.position.y);
@@ -539,7 +540,7 @@ namespace move_base {
 
   /*
   3. planThread()的核心是调用makePlan函数，该函数中实际进行全局规划。
-    全局规划线程时刻等待被executeCB函数唤醒，当executeCB函数中唤醒planThread并将标志位runPlanner_设置为真，跳出内部的循环，继续进行下面部分。
+    全局规划线程时刻等待被 executeCB 函数唤醒，当 executeCB 函数中唤醒planThread并将标志位runPlanner_设置为真，跳出内部的循环，继续进行下面部分。
   */
   void MoveBase::planThread(){
     ROS_DEBUG_NAMED("move_base_plan_thread","Starting planner thread...");
@@ -669,7 +670,7 @@ namespace move_base {
     last_oscillation_reset_ = ros::Time::now();
     //对同一目标的全局规划次数记录归为0
     planning_retries_ = 0;
-    /* ======= 全局规划完成，接下来循环调用executeCycle函数来控制机器人进行局部规划，完成相应跟随。======*/
+    /* ======= 全局规划完成，接下来循环调用 executeCycle 函数来控制机器人进行局部规划，完成相应跟随。======*/
     ros::NodeHandle n;
     while(n.ok())
     {
@@ -834,7 +835,7 @@ namespace move_base {
       //在指针的保护下，交换latest_plan和controller_plan的值
       boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
       controller_plan_ = latest_plan_; //controller_plan_存储【当前最新制定好的待到达的全局规划】
-      latest_plan_ = temp_plan; //使得全局规划制定好的planner_plan经由latest_plan一路传递到controller_plan供局部规划器使用
+      latest_plan_ = temp_plan; //使得全局规划制定好的 planner_plan 经由latest_plan一路传递到controller_plan供局部规划器使用
       lock.unlock();
       ROS_DEBUG_NAMED("move_base","pointers swapped!");
 
@@ -906,7 +907,7 @@ namespace move_base {
 
         {
          boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(controller_costmap_ros_->getCostmap()->getMutex()));
-        //局部规划器实例tc_被传入了全局规划后，调用 computeVelocityCommands 函数计算速度存储在 cmd_vel 中
+        //局部规划器实例 tc_ 被传入了全局规划后，调用 computeVelocityCommands 函数计算速度存储在 cmd_vel 中
         if(tc_->computeVelocityCommands(cmd_vel)){
           ROS_DEBUG_NAMED( "move_base", "Got a valid command from the local planner: %.3lf, %.3lf, %.3lf",
                            cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z );

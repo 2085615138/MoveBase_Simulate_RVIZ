@@ -90,7 +90,7 @@ namespace dwa_local_planner {
        * @param cmd_vel Will be filled with the velocity command to be passed to the robot base
        * @return True if a valid trajectory was found, false otherwise
        */
-      bool computeVelocityCommands(geometry_msgs::Twist& cmd_vel);
+      bool computeVelocityCommands(geometry_msgs::Twist& cmd_vel);  //计算控制速度
 
 
       /**
@@ -101,18 +101,14 @@ namespace dwa_local_planner {
        */
       bool dwaComputeVelocityCommands(geometry_msgs::PoseStamped& global_pose, geometry_msgs::Twist& cmd_vel);
 
-      /**
-       * @brief  Set the plan that the controller is following
-       * @param orig_global_plan The plan to pass to the controller
-       * @return True if the plan was updated successfully, false otherwise
-       */
+      /**设置全局路径*/
       bool setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan);
 
       /**
        * @brief  Check if the goal pose has been achieved
        * @return True if achieved, false otherwise
        */
-      bool isGoalReached();
+      bool isGoalReached(); //判断是否达到目标点
 
 
 
@@ -135,9 +131,9 @@ namespace dwa_local_planner {
       // for visualisation, publishers of global and local plan
       ros::Publisher g_plan_pub_, l_plan_pub_;
 
-      base_local_planner::LocalPlannerUtil planner_util_;
+      base_local_planner::LocalPlannerUtil planner_util_; //存储运动控制参数以及costmap2d、tf等
 
-      boost::shared_ptr<DWAPlanner> dp_; ///< @brief The trajectory controller
+      boost::shared_ptr<DWAPlanner> dp_; //dwa运动控制类
 
       costmap_2d::Costmap2DROS* costmap_ros_;
 
@@ -146,13 +142,13 @@ namespace dwa_local_planner {
       bool setup_;
       geometry_msgs::PoseStamped current_pose_;
 
-      base_local_planner::LatchedStopRotateController latchedStopRotateController_;
+      base_local_planner::LatchedStopRotateController latchedStopRotateController_; //到达目标点后的停止旋转运动控制类
 
 
       bool initialized_;
 
 
-      base_local_planner::OdometryHelperRos odom_helper_;
+      base_local_planner::OdometryHelperRos odom_helper_; //辅助获取odom信息，会被传入dp_
       std::string odom_topic_;
   };
 };

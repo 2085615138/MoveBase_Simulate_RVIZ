@@ -73,7 +73,7 @@ namespace base_local_planner {
 
     pub.publish(gui_path);
   }
-
+  //路径清除
   void prunePlan(const geometry_msgs::PoseStamped& global_pose, std::vector<geometry_msgs::PoseStamped>& plan, std::vector<geometry_msgs::PoseStamped>& global_plan){
     ROS_ASSERT(global_plan.size() >= plan.size());
     std::vector<geometry_msgs::PoseStamped>::iterator it = plan.begin();

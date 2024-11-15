@@ -401,13 +401,13 @@ namespace base_local_planner {
       ROS_ERROR("This planner has not been initialized, please call initialize() before using this planner");
       return false;
     }
-
+    //获取机器人位姿
     std::vector<geometry_msgs::PoseStamped> local_plan;
     geometry_msgs::PoseStamped global_pose;
     if (!costmap_ros_->getRobotPose(global_pose)) {
       return false;
     }
-
+    //获取全局路径规划，根据局部代价地图，从全局路径截取一段，并将路径点转换到/odom坐标，生成结果放在 transformed_plan
     std::vector<geometry_msgs::PoseStamped> transformed_plan;
     //get the global plan in our frame
     if (!transformGlobalPlan(*tf_, global_plan_, global_pose, *costmap_, global_frame_, transformed_plan)) {
@@ -415,7 +415,7 @@ namespace base_local_planner {
       return false;
     }
 
-    //now we'll prune the plan based on the position of the robot
+    //路径清除，全局路径中前面一部分的点是被经历过的，局部路径中的一部分也是走过的，要删除
     if(prune_plan_)
       prunePlan(global_pose, transformed_plan, global_plan_);
 
@@ -444,7 +444,7 @@ namespace base_local_planner {
 
     double goal_th = yaw;
 
-    //check to see if we've reached the goal position
+    //判断当前机器人是否到达目标点，如果到达目标点的话，则需要再判断角度是否也满足阈值要求
     if (xy_tolerance_latch_ || (getGoalPositionDistance(global_pose, goal_x, goal_y) <= xy_goal_tolerance_)) {
 
       //if the user wants to latch goal tolerance, if we ever reach the goal location, we'll
@@ -452,9 +452,10 @@ namespace base_local_planner {
       if (latch_xy_goal_tolerance_) {
         xy_tolerance_latch_ = true;
       }
-
+      //检查是否到达目标“朝向、姿态”
+      //获取当前朝向和目标姿态的差值
       double angle = getGoalOrientationAngleDifference(global_pose, goal_th);
-      //check to see if the goal orientation has been reached
+      //到达目标位置，如果差值小于容忍度
       if (fabs(angle) <= yaw_goal_tolerance_) {
         //set the velocity command to zero
         cmd_vel.linear.x = 0.0;
@@ -464,13 +465,14 @@ namespace base_local_planner {
         xy_tolerance_latch_ = false;
         reached_goal_ = true;
       } else {
-        //we need to call the next two lines to make sure that the trajectory
-        //planner updates its path distance and goal distance grids
+        //如果到达位置，但朝向和姿态没达到目标要求
+        //将全局路径拷贝进来，并认为全局路径的最后一个点就是终点
         tc_->updatePlan(transformed_plan);
+        //给定当前机器人的位置和朝向，计算机器人应该跟随的“best”轨迹，存储在drive_cmds中
         Trajectory path = tc_->findBestPath(global_pose, robot_vel, drive_cmds);
-        map_viz_.publishCostCloud(costmap_);
+        map_viz_.publishCostCloud(costmap_);  //发布代价地图点云
 
-        //copy over the odometry information
+        //得到里程计信息
         nav_msgs::Odometry base_odom;
         odom_helper_.getOdom(base_odom);
 

@@ -146,7 +146,7 @@ namespace dwa_local_planner {
 
     private:
 
-      base_local_planner::LocalPlannerUtil *planner_util_;
+      base_local_planner::LocalPlannerUtil *planner_util_;  //存储运动控制参数以及costmap2d、tf等
 
       double stop_time_buffer_; ///< @brief How long before hitting something we're going to enforce that the robot stop
       double path_distance_bias_, goal_distance_bias_, occdist_scale_;
